@@ -1,0 +1,68 @@
+name: BTC Multi-Exchange Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Days of historical data'
+        required: true
+        default: '7'
+        type: string
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ccxt pandas numpy
+
+      - name: Run BTC audit backtest
+        run: |
+          python btc_tp_sl_audit.py \
+            --days ${{ github.event.inputs.days }} \
+            --out-report btc_audit_report.txt \
+            --out-json btc_audit_results.json
+
+      - name: Display report
+        if: always()
+        run: |
+          if [ -f btc_audit_report.txt ]; then
+            echo "=== AUDIT REPORT ===" 
+            cat btc_audit_report.txt
+          fi
+
+      - name: Upload audit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: btc-audit-${{ github.run_number }}
+          path: |
+            btc_audit_report.txt
+            btc_audit_results.json
+          retention-days: 30
+
+      - name: Create job summary
+        if: always()
+        run: |
+          if [ -f btc_audit_report.txt ]; then
+            echo "## BTC Multi-Exchange Audit Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat btc_audit_report.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
