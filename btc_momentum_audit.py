@@ -4,10 +4,10 @@ BTC/USDT MOMENTUM SCALPING AUDIT - NO STOP LOSS
 Tests 1000 trades across multiple TP levels
 Optimized for high-momentum entry strategy with Claude co-investment
 
-Multi-TP Testing:
-  - 0.10% TP: Ultra-tight scalp
-  - 0.15% TP: Recommended baseline
-  - 0.25% TP: Medium scalp
+Multi-TP Testing (AGGRESSIVE):
+  - 0.05% TP: Ultra-tight scalp (65%+ win rate target)
+  - 0.08% TP: Tight scalp (60%+ win rate)
+  - 0.10% TP: Standard scalp (55%+ win rate)
 """
 
 import json
@@ -25,7 +25,7 @@ MAX_TRADES = 1000
 TAKER_FEE = 0.0005
 
 # NO STOP LOSS - letting positions run
-TP_LEVELS = [0.0010, 0.0015, 0.0025]  # 0.10%, 0.15%, 0.25%
+TP_LEVELS = [0.0005, 0.0008, 0.0010]  # 0.05%, 0.08%, 0.10% (AGGRESSIVE)
 
 EXCHANGES_CONFIG = {
     "coinbase": {"enableRateLimit": True},
@@ -214,8 +214,8 @@ def generate_audit_report(results: Dict) -> str:
     """Generate comprehensive multi-TP audit report."""
     report = []
     report.append("=" * 100)
-    report.append("BTC/USDT MOMENTUM SCALPING - MULTI-TP AUDIT")
-    report.append("NO STOP LOSS | 1000 TRADE TARGET | CLAUDE CO-INVESTMENT")
+    report.append("BTC/USDT MOMENTUM SCALPING - AGGRESSIVE MULTI-TP AUDIT")
+    report.append("NO STOP LOSS | 1000 TRADE TARGET | 65% WIN RATE TARGET | CLAUDE CO-INVESTMENT")
     report.append("=" * 100)
     report.append("")
     report.append(f"Generated: {datetime.now(timezone.utc).isoformat()}")
@@ -229,6 +229,7 @@ def generate_audit_report(results: Dict) -> str:
     report.append(f"  * Compound on Wins: {COMPOUND_PCT*100:.0f}%")
     report.append(f"  * Taker Fee: {TAKER_FEE*100:.04f}%")
     report.append(f"  * Max Trades: {MAX_TRADES}")
+    report.append(f"  * Target Win Rate: 65%+")
     report.append("")
     
     # Summary comparison table
@@ -242,9 +243,14 @@ def generate_audit_report(results: Dict) -> str:
             key = f"{exchange}_{tp_level}"
             if key in results:
                 r = results[key]
+                win_indicator = ""
+                if r['win_rate_pct'] >= 65:
+                    win_indicator = " <-- TARGET HIT!"
+                elif r['win_rate_pct'] >= 60:
+                    win_indicator = " <-- CLOSE"
                 report.append(
                     f"{exchange:<12} {r['tp_pct']*100:>6.2f}% ${r['ending_equity']:<11.2f} {r['return_pct']:>11.2f}% "
-                    f"{r['trade_count']:>7} {r['win_rate_pct']:>9.2f}% {r['avg_hold_bars']:>9.1f}b {str(r['profit_factor']):<8}"
+                    f"{r['trade_count']:>7} {r['win_rate_pct']:>9.2f}% {r['avg_hold_bars']:>9.1f}b {str(r['profit_factor']):<8}{win_indicator}"
                 )
     
     report.append("-" * 100)
@@ -288,23 +294,42 @@ def generate_audit_report(results: Dict) -> str:
     report.append("RECOMMENDATIONS FOR CLAUDE CO-INVESTMENT:")
     report.append("=" * 100)
     
-    best_result = None
-    best_key = None
-    best_return = -999
-    
+    # Find 65% target hitters
+    targets_hit = []
     for key, r in results.items():
-        if r['return_pct'] > best_return:
-            best_return = r['return_pct']
-            best_key = key
-            best_result = r
+        if r['win_rate_pct'] >= 65:
+            targets_hit.append((key, r))
     
-    if best_result:
-        exchange, tp = best_key.rsplit("_", 1)
-        report.append(f"\nBest Performer: {exchange.upper()} @ {float(tp)*100:.2f}% TP")
-        report.append(f"  - Return: {best_result['return_pct']:+.2f}%")
-        report.append(f"  - Win Rate: {best_result['win_rate_pct']:.2f}%")
-        report.append(f"  - Avg Hold: {best_result['avg_hold_bars']:.1f} bars")
-        report.append(f"  - Trades: {best_result['trade_count']}")
+    if targets_hit:
+        report.append("\nTARGET ACHIEVED - 65%+ WIN RATE:")
+        for key, r in targets_hit:
+            exchange, tp = key.rsplit("_", 1)
+            report.append(f"\n  {exchange.upper()} @ {float(tp)*100:.2f}% TP")
+            report.append(f"    - Win Rate: {r['win_rate_pct']:.2f}%")
+            report.append(f"    - Return: {r['return_pct']:+.2f}%")
+            report.append(f"    - Trades: {r['trade_count']}")
+            report.append(f"    - Avg Hold: {r['avg_hold_bars']:.1f} bars")
+            report.append(f"    - Recommendation: READY FOR LIVE TRADING")
+    else:
+        report.append("\n65% target not achieved with current data.")
+        best_result = None
+        best_key = None
+        best_wr = -1
+        
+        for key, r in results.items():
+            if r['win_rate_pct'] > best_wr:
+                best_wr = r['win_rate_pct']
+                best_key = key
+                best_result = r
+        
+        if best_result:
+            exchange, tp = best_key.rsplit("_", 1)
+            report.append(f"\nBest Performer: {exchange.upper()} @ {float(tp)*100:.2f}% TP")
+            report.append(f"  - Win Rate: {best_result['win_rate_pct']:.2f}%")
+            report.append(f"  - Return: {best_result['return_pct']:+.2f}%")
+            report.append(f"  - Trades: {best_result['trade_count']}")
+            report.append(f"  - Gap to 65%: {65 - best_result['win_rate_pct']:.2f}%")
+            report.append(f"  - Next Step: Add momentum filters (RSI, MA, Volume)")
     
     report.append("")
     report.append("=" * 100)
@@ -315,7 +340,7 @@ def generate_audit_report(results: Dict) -> str:
 def main():
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("--days", type=int, default=7)
+    ap.add_argument("--days", type=int, default=60)
     ap.add_argument("--out-report", default="btc_momentum_report.txt")
     ap.add_argument("--out-json", default="btc_momentum_results.json")
     args = ap.parse_args()
@@ -323,7 +348,8 @@ def main():
     results = {}
     
     print("\n" + "="*100)
-    print("BTC/USDT MOMENTUM SCALPING - MULTI-TP AUDIT")
+    print("BTC/USDT MOMENTUM SCALPING - AGGRESSIVE MULTI-TP AUDIT")
+    print("65% WIN RATE TARGET")
     print("="*100 + "\n")
     
     for source in ["coinbase", "toobit"]:
@@ -343,7 +369,7 @@ def main():
             result = run_backtest(df, source, tp_pct)
             results[f"{source}_{tp_pct}"] = result
             
-            print(f"OK - {result['trade_count']} trades, {result['return_pct']:+.2f}% return\n")
+            print(f"OK - {result['trade_count']} trades, {result['win_rate_pct']:.2f}% win rate, {result['return_pct']:+.2f}% return\n")
     
     # Generate and save report
     report = generate_audit_report(results)
@@ -362,7 +388,8 @@ def main():
             "compound_pct": COMPOUND_PCT,
             "taker_fee": TAKER_FEE,
             "days": args.days,
-            "strategy": "momentum_scalping_no_sl",
+            "strategy": "momentum_scalping_no_sl_aggressive",
+            "target_win_rate": 0.65,
         },
         "results": results,
     }
