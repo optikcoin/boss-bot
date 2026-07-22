@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
 BTC/USDT LIVE DATA TEST - NO STOP LOSS
-Starting Equity: $100
-Notional: 10x leverage
-Take-Profit: 2%
-No Stop Loss
+Configurable: Starting Equity, Leverage, TP, Days
 """
 
 import json
@@ -16,13 +13,9 @@ import sys
 from typing import Dict, List, Tuple, Optional
 
 STARTING_EQUITY = 100.0
-X_NOTIONAL = 10.0  # 10x leverage
 COMPOUND_PCT = 0.5
 MAX_TRADES = 1000
 TAKER_FEE = 0.0005
-
-TP_PCT = 0.02  # 2% take-profit
-# NO STOP LOSS
 
 EXCHANGES_CONFIG = {
     "coinbase": {"enableRateLimit": True},
@@ -78,7 +71,7 @@ def load_data(source: str, days: int) -> Optional[pd.DataFrame]:
         return None
 
 
-def simulate_trade(df: pd.DataFrame, start_idx: int, fee_side: float, equity: float) -> Tuple[Optional[Dict], Optional[float], Optional[int]]:
+def simulate_trade(df: pd.DataFrame, start_idx: int, tp_pct: float, fee_side: float, equity: float, notional: float) -> Tuple[Optional[Dict], Optional[float], Optional[int]]:
     """Simulate a single trade with TP only (NO STOP LOSS)."""
     high = df["high"].to_numpy()
     low = df["low"].to_numpy()
@@ -89,8 +82,8 @@ def simulate_trade(df: pd.DataFrame, start_idx: int, fee_side: float, equity: fl
         return None, None, None
     
     entry = float(df["close"].iloc[entry_idx])
-    tp_price = entry * (1.0 + TP_PCT)
-    qty = max(0.001, (equity * X_NOTIONAL) / max(entry, 1e-9))
+    tp_price = entry * (1.0 + tp_pct)
+    qty = max(0.001, (equity * notional) / max(entry, 1e-9))
     
     future_high = high[entry_idx + 1:]
     
@@ -117,7 +110,7 @@ def simulate_trade(df: pd.DataFrame, start_idx: int, fee_side: float, equity: fl
             "exit_ts": str(pd.Timestamp(ts[last_idx])),
             "tp_hit": False,
             "hold_bars": last_idx - entry_idx,
-            "leverage": X_NOTIONAL,
+            "leverage": notional,
         }
         return trade, pnl, last_idx
     
@@ -142,12 +135,12 @@ def simulate_trade(df: pd.DataFrame, start_idx: int, fee_side: float, equity: fl
         "exit_ts": str(pd.Timestamp(ts[exit_idx])),
         "tp_hit": True,
         "hold_bars": int(tp_i),
-        "leverage": X_NOTIONAL,
+        "leverage": notional,
     }
     return trade, pnl, exit_idx
 
 
-def run_backtest(df: pd.DataFrame, source: str) -> Dict:
+def run_backtest(df: pd.DataFrame, source: str, tp_pct: float, notional: float) -> Dict:
     """Run backtest on data."""
     equity = STARTING_EQUITY
     trades = []
@@ -157,7 +150,7 @@ def run_backtest(df: pd.DataFrame, source: str) -> Dict:
     max_drawdown = 0
     
     while cursor < len(df) - 2 and completed < MAX_TRADES:
-        trade, pnl, exit_idx = simulate_trade(df, cursor, TAKER_FEE, equity)
+        trade, pnl, exit_idx = simulate_trade(df, cursor, tp_pct, TAKER_FEE, equity, notional)
         if trade is None:
             cursor += 1
             continue
@@ -214,20 +207,20 @@ def run_backtest(df: pd.DataFrame, source: str) -> Dict:
         "max_drawdown_pct": round(max_drawdown, 2),
         "peak_equity": round(peak_equity, 4),
         "compound_pct_on_wins": COMPOUND_PCT,
-        "tp_pct": TP_PCT,
-        "notional": X_NOTIONAL,
+        "tp_pct": tp_pct,
+        "notional": notional,
         "data_points": len(df),
         "timespan": f"{df['ts'].min()} to {df['ts'].max()}",
         "trades": trades,
     }
 
 
-def generate_report(results: Dict) -> str:
+def generate_report(results: Dict, tp_pct: float, notional: float) -> str:
     """Generate comprehensive live data test report."""
     report = []
     report.append("=" * 100)
     report.append("BTC/USDT LIVE DATA TEST")
-    report.append("Starting Equity: $100 | 10x Leverage | 2% TP | NO STOP LOSS")
+    report.append(f"Starting Equity: $100 | {notional}x Leverage | {tp_pct*100:.2f}% TP | NO STOP LOSS")
     report.append("=" * 100)
     report.append("")
     report.append(f"Generated: {datetime.now(timezone.utc).isoformat()}")
@@ -235,8 +228,8 @@ def generate_report(results: Dict) -> str:
     
     report.append("STRATEGY PARAMETERS:")
     report.append(f"  * Starting Equity: ${STARTING_EQUITY}")
-    report.append(f"  * Notional Multiplier: {X_NOTIONAL}x LEVERAGE")
-    report.append(f"  * Take-Profit: {TP_PCT*100:.2f}%")
+    report.append(f"  * Notional Multiplier: {notional}x LEVERAGE")
+    report.append(f"  * Take-Profit: {tp_pct*100:.2f}%")
     report.append(f"  * Stop-Loss: NONE (momentum hold)")
     report.append(f"  * Compound on Wins: {COMPOUND_PCT*100:.0f}%")
     report.append(f"  * Taker Fee: {TAKER_FEE*100:.04f}%")
@@ -338,7 +331,17 @@ def generate_report(results: Dict) -> str:
     if not ready:
         report.append("\nNOT READY FOR LIVE DEPLOYMENT")
         report.append("  - Need positive return with >40% win rate")
-        report.append("  - Consider reducing leverage or adjusting TP")
+        best_exch = None
+        best_return = -999
+        for exchange in ["coinbase", "toobit"]:
+            if exchange in results and results[exchange]['return_pct'] > best_return:
+                best_return = results[exchange]['return_pct']
+                best_exch = exchange
+        if best_exch:
+            r = results[best_exch]
+            report.append(f"  - Best so far: {best_exch.upper()} @ {r['return_pct']:+.2f}%")
+            if r['return_pct'] < 0:
+                report.append(f"  - Try: Lower TP further, increase days, or reduce leverage")
     
     report.append("")
     report.append("=" * 100)
@@ -350,6 +353,8 @@ def main():
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=7)
+    ap.add_argument("--tp", type=float, default=0.02, help="Take-profit percentage (e.g., 0.005 for 0.5%)")
+    ap.add_argument("--notional", type=float, default=10.0, help="Leverage multiplier (e.g., 2 for 2x)")
     ap.add_argument("--out-report", default="btc_live_test_report.txt")
     ap.add_argument("--out-json", default="btc_live_test_results.json")
     args = ap.parse_args()
@@ -358,7 +363,7 @@ def main():
     
     print("\n" + "="*100)
     print("BTC/USDT LIVE DATA TEST")
-    print("$100 Starting Equity | 10x Leverage | 2% TP | NO STOP LOSS")
+    print(f"$100 Starting Equity | {args.notional}x Leverage | {args.tp*100:.2f}% TP | NO STOP LOSS")
     print("="*100 + "\n")
     
     for source in ["coinbase", "toobit"]:
@@ -373,13 +378,13 @@ def main():
         print(f"OK - Loaded {len(df):,} candles")
         print(f"  Running backtest...", end=" ", flush=True)
         
-        result = run_backtest(df, source)
+        result = run_backtest(df, source, args.tp, args.notional)
         results[source] = result
         
         print(f"OK - {result['trade_count']} trades, {result['return_pct']:+.2f}% return\n")
     
     # Generate and save report
-    report = generate_report(results)
+    report = generate_report(results, args.tp, args.notional)
     print(report)
     
     with open(args.out_report, "w", encoding="utf-8") as f:
@@ -390,13 +395,13 @@ def main():
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "parameters": {
             "starting_equity": STARTING_EQUITY,
-            "notional_multiplier": X_NOTIONAL,
-            "tp_pct": TP_PCT,
+            "notional_multiplier": args.notional,
+            "tp_pct": args.tp,
             "stop_loss": "NONE",
             "compound_pct": COMPOUND_PCT,
             "taker_fee": TAKER_FEE,
             "days": args.days,
-            "strategy": "live_data_test_10x_leverage",
+            "strategy": "live_data_test_configurable",
         },
         "results": results,
     }
